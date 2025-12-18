@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Word Build - Connected</title>
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+  <div id="translate-tooltip" class="translation-tooltip">...</div>
+
+  <div id="word-build-view" class="view">
+    <div class="q-header">
+      <div class="q-close-btn" id="btn-close">✕</div>
+      <div class="progress-wrap"><div class="progress-fill" id="wb-progress"></div></div>
+      <div class="gem-badge">💎 <span id="gem-count">450</span></div>
+    </div>
+
+    <div class="game-card">
+      <div class="wb-top-section">
+        <div class="wb-image-circle" id="wb-image">🍎</div>
+        <div class="joker-btn" id="btn-joker">💡<div class="joker-cost">-10</div></div>
+        <div class="wb-hint-text" id="wb-hint-text"></div>
+      </div>
+
+      <div class="wb-slots-wrapper" id="wb-slots"></div>
+      <div class="wb-pool-wrapper" id="wb-pool"></div>
+      <button class="wb-check-btn" id="wb-check">ÜBERPRÜFEN</button>
+    </div>
+
+    <div id="wb-feedback" class="wb-feedback">...</div>
+  </div>
+
+  <!-- Confetti LOCAL -->
+  <script src="./confetti.browser.min.js"></script>
+
+  <!-- Offline guaranteed data option (paste your JSON here if you want) -->
+  <script id="embedded-words" type="application/json">[]</script>
+  <script id="embedded-dict"  type="application/json">{}</script>
+
+  <script src="./app.js"></script>
+</body>
+</html>
