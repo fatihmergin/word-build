@@ -81,16 +81,42 @@
     } catch (_) {}
   }
 
+  /* --- GÜNCELLENEN KISIM: İNGİLİZCE SESLENDİRME --- */
   function safeSpeak(text) {
     try {
       if (!("speechSynthesis" in window)) return;
+      
+      // Halihazırda konuşuyorsa durdur
       window.speechSynthesis.cancel();
+      
       const u = new SpeechSynthesisUtterance(String(text));
+      
+      // 1. Önce dil kodunu ayarla (Bazı tarayıcılar için yeterli olabilir)
       u.lang = "en-US";
       u.rate = 0.9;
+
+      // 2. Sesleri al ve İngilizce olanı bulup ZORLA ata
+      const voices = window.speechSynthesis.getVoices();
+      
+      // Öncelik: "en-US", yoksa herhangi bir "en" ile başlayan ses
+      const englishVoice = voices.find(v => v.lang === "en-US") || voices.find(v => v.lang.startsWith("en"));
+      
+      if (englishVoice) {
+          u.voice = englishVoice;
+      }
+
       window.speechSynthesis.speak(u);
     } catch (_) {}
   }
+
+  // Sayfa yüklendiğinde seslerin hazır olması için (Chrome/Android için gerekli)
+  if ("speechSynthesis" in window) {
+      window.speechSynthesis.onvoiceschanged = () => {
+          // Sesler yüklendiğinde bir şey yapmamıza gerek yok, 
+          // safeSpeak çağrıldığında getVoices() dolu gelecektir.
+      };
+  }
+  /* --- GÜNCELLEME SONU --- */
 
   loadAllData();
 
