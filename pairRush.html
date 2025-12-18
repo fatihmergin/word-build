@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pair Rush - Level Mode</title>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&family=Nunito:wght@700;900&display=swap');
+
+        :root {
+            --bg-color: #faed7d;
+            --accent-purple: #9c27b0;
+            --accent-blue: #03A9F4;
+            --accent-green: #4CAF50;
+            --card-bg: #fff;
+            --text-color: #333;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Fredoka', sans-serif;
+            background-color: var(--bg-color);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Ctext x='50%25' y='50%25' font-size='30' text-anchor='middle' dy='.35em' opacity='0.15'%3E🍍%3C/text%3E%3C/svg%3E");
+            height: 100vh; overflow: hidden;
+            display: flex; flex-direction: column;
+            user-select: none;
+        }
+
+        /* --- ÜST PANEL --- */
+        .top-bar {
+            padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(255,255,255,0.8);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            z-index: 10; height: 70px;
+        }
+
+        .level-badge {
+            background: var(--accent-purple); color: white;
+            padding: 5px 15px; border-radius: 20px; font-size: 1rem;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.2);
+        }
+
+        .timer-container {
+            flex-grow: 1; margin: 0 15px;
+            height: 12px; background: #ddd; border-radius: 6px; overflow: hidden;
+            border: 2px solid white;
+        }
+        .timer-fill {
+            height: 100%; width: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.1s linear, background-color 0.3s;
+        }
+
+        .score-box {
+            font-family: 'Nunito', sans-serif; font-weight: 900;
+            color: #555; font-size: 1.2rem;
+        }
+
+        /* --- OYUN ALANI (GRID) --- */
+        .game-container {
+            flex: 1; /* Kalan tüm alanı kapla */
+            width: 100%; height: 100%;
+            padding: 10px;
+            display: grid;
+            /* Grid sütun ve satırlarını JS ile dinamik vereceğiz (--cols, --rows) */
+            grid-template-columns: repeat(var(--cols), 1fr);
+            grid-template-rows: repeat(var(--rows), 1fr);
+            gap: 8px;
+            justify-content: center; align-content: center;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; cursor: pointer; position: relative;
+            box-shadow: 0 4px 0 #ccc; border: 2px solid #fff;
+            transition: transform 0.1s, background 0.2s;
+            /* Kart içindeki yazı taşmasın */
+            overflow: hidden;
+            width: 100%; height: 100%;
+        }
+
+        .card:active { transform: translateY(3px); box-shadow: 0 1px 0 #ccc; }
+
+        /* Yazı boyutunu ekranın küçüklüğüne göre ayarla */
+        .card-text {
+            font-family: 'Nunito', sans-serif; font-weight: 800; color: #444;
+            /* vmin kullanarak ekran boyutuna göre yazı boyutu */
+            font-size: calc(2vh + 2vw); 
+            line-height: 1.1; pointer-events: none;
+        }
+        
+        .lang-tag {
+            position: absolute; top: 2px; right: 4px;
+            font-size: 0.6rem; font-weight: 900; color: #bbb;
+            text-transform: uppercase;
+        }
+
+        /* Durumlar */
+        .card.selected {
+            background: var(--accent-blue); box-shadow: 0 4px 0 #0277BD;
+            border-color: #81D4FA; transform: translateY(-2px);
+        }
+        .card.selected .card-text, .card.selected .lang-tag { color: white; }
+
+        .card.matched {
+            background: var(--accent-green); box-shadow: 0 4px 0 #2E7D32;
+            border-color: #A5D6A7; 
+            animation: popOut 0.4s forwards; pointer-events: none;
+        }
+        .card.matched .card-text, .card.matched .lang-tag { color: white; }
+
+        .card.wrong {
+            background: #ff5252; box-shadow: 0 4px 0 #b71c1c;
+            animation: shake 0.4s;
+        }
+        .card.wrong .card-text, .card.wrong .lang-tag { color: white; }
+
+        /* --- MODAL --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(5px);
+            display: none; justify-content: center; align-items: center; z-index: 100;
+        }
+        .modal-box {
+            background: white; padding: 30px; border-radius: 25px;
+            width: 85%; max-width: 320px; text-align: center;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .btn-main {
+            background: var(--accent-purple); color: white; border: none;
+            padding: 15px 30px; border-radius: 15px; font-size: 1.1rem; font-weight: bold;
+            width: 100%; margin-top: 15px; cursor: pointer; box-shadow: 0 5px 0 rgba(0,0,0,0.2);
+        }
+        .btn-main:active { transform: translateY(3px); box-shadow: none; }
+
+        /* Animasyonlar */
+        @keyframes popOut { 50% { transform: scale(1.1); opacity:1; } 100% { transform: scale(0); opacity: 0; } }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        @keyframes slideIn { from { transform: translateY(50px) scale(0.8); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <div class="level-badge">Lvl <span id="level-num">1</span></div>
+        <div class="timer-container"><div class="timer-fill" id="timer-bar"></div></div>
+        <div class="score-box">💎 <span id="score">0</span></div>
+    </div>
+
+    <div class="game-container" id="grid">
+        </div>
+
+    <div class="modal-overlay" id="modal">
+        <div class="modal-box">
+            <h1 id="modal-title" style="margin:0; font-size:2rem;">LEVEL UP! 🚀</h1>
+            <p id="modal-msg" style="color:#666; margin:10px 0;">Harika gidiyorsun!</p>
+            <button class="btn-main" id="modal-btn" onclick="nextLevel()">WEITER</button>
+        </div>
+    </div>
+
+    <script>
+        // --- OYUN KONFIGÜRASYONU (LEVEL SİSTEMİ) ---
+        // cols x rows = kart sayısı. 
+        // pairCount = (cols * rows) / 2
+        const levelConfigs = [
+            { level: 1, cols: 2, rows: 2, time: 10 }, // 4 Kart (Çok basit)
+            { level: 2, cols: 2, rows: 3, time: 15 }, // 6 Kart
+            { level: 3, cols: 2, rows: 4, time: 25 }, // 8 Kart
+            { level: 4, cols: 3, rows: 4, time: 40 }, // 12 Kart
+            { level: 5, cols: 4, rows: 4, time: 60 }, // 16 Kart (Zor)
+            { level: 6, cols: 4, rows: 5, time: 75 }  // 20 Kart (Daha Zor)
+        ];
+
+        // --- KELİME HAVUZU (Sanal API) ---
+        const dictionaryPool = [
+            { de: "Hund", en: "Dog" }, { de: "Katze", en: "Cat" },
+            { de: "Auto", en: "Car" }, { de: "Baum", en: "Tree" },
+            { de: "Haus", en: "House" }, { de: "Sonne", en: "Sun" },
+            { de: "Apfel", en: "Apple" }, { de: "Buch", en: "Book" },
+            { de: "Wasser", en: "Water" }, { de: "Rot", en: "Red" },
+            { de: "Blau", en: "Blue" }, { de: "Schule", en: "School" },
+            { de: "Mond", en: "Moon" }, { de: "Stern", en: "Star" },
+            { de: "Brot", en: "Bread" }, { de: "Milch", en: "Milk" },
+            { de: "Fisch", en: "Fish" }, { de: "Vogel", en: "Bird" },
+            { de: "Stuhl", en: "Chair" }, { de: "Tisch", en: "Table" }
+        ];
+
+        // --- STATE ---
+        let currentLevelIndex = 0;
+        let score = 0;
+        let selectedCards = [];
+        let matchedPairs = 0;
+        let isLocked = false;
+        let timeLeft = 0;
+        let maxTime = 0;
+        let timerInterval;
+
+        // DOM
+        const grid = document.getElementById('grid');
+        const modal = document.getElementById('modal');
+        const timerBar = document.getElementById('timer-bar');
+        const scoreEl = document.getElementById('score');
+        const levelEl = document.getElementById('level-num');
+
+        // Başlat
+        initLevel();
+
+        function initLevel() {
+            // Eğer leveller bittiyse başa dön veya sonsuz yap
+            if (currentLevelIndex >= levelConfigs.length) {
+                currentLevelIndex = 0; // Şimdilik başa dön
+                alert("Oyun bitti! En baştan başlıyoruz efsane!");
+            }
+
+            const config = levelConfigs[currentLevelIndex];
+            const pairCount = (config.cols * config.rows) / 2;
+
+            // Reset UI
+            modal.style.display = 'none';
+            grid.innerHTML = '';
+            selectedCards = [];
+            matchedPairs = 0;
+            isLocked = false;
+            
+            // Grid Ayarlarını CSS Variable olarak ata (Responsive Grid için)
+            grid.style.setProperty('--cols', config.cols);
+            grid.style.setProperty('--rows', config.rows);
+            
+            levelEl.innerText = config.level;
+            
+            // Zamanlayıcıyı kur
+            maxTime = config.time;
+            timeLeft = maxTime;
+            updateTimerUI();
+            clearInterval(timerInterval);
+            timerInterval = setInterval(gameLoop, 100); // 100ms smooth update
+
+            // Kartları oluştur
+            createCards(pairCount);
+        }
+
+        function createCards(count) {
+            // Havuzdan rastgele 'count' kadar çift seç
+            const shuffledPool = [...dictionaryPool].sort(() => 0.5 - Math.random());
+            const selectedPairs = shuffledPool.slice(0, count);
+
+            let deck = [];
+            selectedPairs.forEach(item => {
+                deck.push({ text: item.de, lang: 'DE', id: item.en }); // ID eşleşmesi için
+                deck.push({ text: item.en, lang: 'EN', id: item.en });
+            });
+
+            // Kartları karıştır
+            deck.sort(() => 0.5 - Math.random());
+
+            // DOM'a bas
+            deck.forEach(data => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.dataset.id = data.id; // Eşleşme kontrolü için
+                
+                // İçerik (Küçük dil etiketi ve büyük kelime)
+                card.innerHTML = `
+                    <div class="lang-tag">${data.lang}</div>
+                    <div class="card-text">${data.text}</div>
+                `;
+
+                card.onclick = () => handleCardClick(card);
+                grid.appendChild(card);
+            });
+        }
+
+        function handleCardClick(card) {
+            if (isLocked) return;
+            if (card.classList.contains('selected') || card.classList.contains('matched')) return;
+
+            card.classList.add('selected');
+            selectedCards.push(card);
+
+            if (selectedCards.length === 2) {
+                checkMatch();
+            }
+        }
+
+        function checkMatch() {
+            isLocked = true;
+            const c1 = selectedCards[0];
+            const c2 = selectedCards[1];
+
+            if (c1.dataset.id === c2.dataset.id) {
+                // --- EŞLEŞME ---
+                score += 10;
+                scoreEl.innerText = score;
+                
+                c1.classList.remove('selected');
+                c2.classList.remove('selected');
+                c1.classList.add('matched');
+                c2.classList.add('matched');
+
+                selectedCards = [];
+                isLocked = false;
+                matchedPairs++;
+
+                // Level Bitti mi?
+                const config = levelConfigs[currentLevelIndex];
+                const totalPairs = (config.cols * config.rows) / 2;
+                
+                if (matchedPairs === totalPairs) {
+                    levelCompleted();
+                }
+
+            } else {
+                // --- HATA ---
+                score = Math.max(0, score - 2); // Yanlışta az puan sil
+                scoreEl.innerText = score;
+
+                c1.classList.add('wrong');
+                c2.classList.add('wrong');
+
+                setTimeout(() => {
+                    c1.classList.remove('selected', 'wrong');
+                    c2.classList.remove('selected', 'wrong');
+                    selectedCards = [];
+                    isLocked = false;
+                }, 600);
+            }
+        }
+
+        function gameLoop() {
+            timeLeft -= 0.1; // 100ms'de 0.1 saniye düş
+            updateTimerUI();
+
+            if (timeLeft <= 0) {
+                gameOver();
+            }
+        }
+
+        function updateTimerUI() {
+            const pct = (timeLeft / maxTime) * 100;
+            timerBar.style.width = pct + "%";
+            
+            if (pct < 30) timerBar.style.background = "#ff5252";
+            else if (pct < 60) timerBar.style.background = "#FFC107";
+            else timerBar.style.background = "linear-gradient(90deg, #4CAF50, #8BC34A)";
+        }
+
+        function levelCompleted() {
+            clearInterval(timerInterval);
+            confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+            
+            document.getElementById('modal-title').innerText = "LEVEL " + (currentLevelIndex + 1) + " FERTIG! 🎉";
+            document.getElementById('modal-title').style.color = "#4CAF50";
+            document.getElementById('modal-msg').innerText = "Bereit für das nächste Level?";
+            document.getElementById('modal-btn').innerText = "WEITER";
+            document.getElementById('modal-btn').onclick = nextLevel;
+            
+            setTimeout(() => { modal.style.display = 'flex'; }, 500);
+        }
+
+        function gameOver() {
+            clearInterval(timerInterval);
+            
+            document.getElementById('modal-title').innerText = "ZEIT ABGELAUFEN! ⏰";
+            document.getElementById('modal-title').style.color = "#ff5252";
+            document.getElementById('modal-msg').innerText = "Versuch es nochmal!";
+            document.getElementById('modal-btn').innerText = "NEUSTART";
+            document.getElementById('modal-btn').onclick = restartLevel;
+            
+            modal.style.display = 'flex';
+        }
+
+        function nextLevel() {
+            currentLevelIndex++;
+            initLevel();
+        }
+
+        function restartLevel() {
+            // Skoru sıfırlama, sadece leveli tekrar et
+            initLevel();
+        }
+
+    </script>
+</body>
+</html>
