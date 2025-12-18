@@ -35,7 +35,7 @@ body {
 .joker-btn:active { transform: scale(0.9); }
 .joker-cost { position: absolute; bottom: -10px; background: #333; color: white; font-size: 0.6rem; padding: 2px 6px; border-radius: 10px; font-weight: bold; }
 
-.wb-slots-wrapper { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: auto; width: 100%; min-height: 60px; align-content: center; }
+.wb-slots-wrapper { display: flex; justify-content: center;  /* kutuları sığdırmak içinss flex-wrap: wrap; */ gap: 8px; margin-bottom: auto; width: 100%; min-height: 60px; align-content: center; }
 .wb-slot { width: 48px; height: 58px; background: var(--slot-bg); border-radius: 14px; border-bottom: 4px solid #bdbdbd; display: flex; justify-content: center; align-items: center; font-size: 1.8rem; font-weight: 900; color: #444; line-height: 1; padding-top: 4px; cursor: pointer; transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); user-select: none; }
 .wb-slot.filled { background: white; border: 2px solid var(--accent-purple); border-bottom: 5px solid var(--accent-purple); color: var(--accent-purple); transform: translateY(-2px); box-shadow: 0 5px 15px rgba(156, 39, 176, 0.25); padding-top: 2px; }
 .wb-slot.correct-anim { background: var(--success-green) !important; border-color: #388E3C !important; color: white !important; text-shadow: 0 2px 0 rgba(0,0,0,0.2); box-shadow: none; transform: translateY(0); padding-top: 4px; }
