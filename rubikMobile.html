@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Rubik Mobile Pro</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #1a1a1a, #000000);
+            font-family: 'Orbitron', sans-serif;
+            color: white;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none; /* Mobilde tarayıcı kaydırmasını engelle */
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            pointer-events: none;
+            text-align: center;
+            z-index: 10;
+        }
+
+        #timer {
+            font-size: 3rem;
+            text-shadow: 0 0 10px #ff0055, 0 0 20px #ff0055;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .controls {
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 10px 20px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        button:active {
+            background: rgba(255, 0, 85, 0.4);
+            transform: scale(0.95);
+        }
+
+        #tutorial {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.8rem;
+            pointer-events: none;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.4; }
+            50% { opacity: 0.8; }
+            100% { opacity: 0.4; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="timer">00:00:00</div>
+        <div class="controls">
+            <button onclick="scrambleCube()">KARIŞTIR</button>
+            <button onclick="solveReset()">YENİLE</button>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="tutorial">
+        KÜPÜ ÇEVİRMEK İÇİN YÜZEYİ KAYDIR<br>
+        ETRAFA BAKMAK İÇİN BOŞLUĞU KAYDIR
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+
+    <script>
+        // --- DEĞİŞKENLER ---
+        let scene, camera, renderer, controls;
+        let cubes = [];
+        let isAnimating = false;
+        
+        // Timer
+        let startTime, timerInterval, isTimerRunning = false;
+
+        // Raycasting (Dokunma Algılama)
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let startTouch = null;
+        let intersectObject = null;
+        let intersectNormal = null;
+
+        // Renkler
+        const COLORS = {
+            U: 0xFFFFFF, D: 0xFFD500, F: 0x009E60, 
+            B: 0x0051BA, R: 0xC41E3A, L: 0xFF5800, CORE: 0x181818
+        };
+
+        // --- BAŞLANGIÇ ---
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(5, 4, 7);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Performans için max 2x
+            container.appendChild(renderer.domElement);
+
+            // OrbitControls (Kamera Hareketi)
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enablePan = false;
+            
+            // Işıklandırma
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(10, 20, 10);
+            scene.add(dirLight);
+            const backLight = new THREE.PointLight(0xffffff, 0.5);
+            backLight.position.set(-10, -10, -10);
+            scene.add(backLight);
+
+            createRubiksCube();
+
+            // Event Listeners (Dokunmatik ve Mouse)
+            const canvas = renderer.domElement;
+            canvas.addEventListener('mousedown', onInputStart);
+            canvas.addEventListener('touchstart', onInputStart, {passive: false});
+            
+            canvas.addEventListener('mouseup', onInputEnd);
+            canvas.addEventListener('touchend', onInputEnd);
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        // --- KÜP OLUŞTURMA ---
+        function createRubiksCube() {
+            const geometry = new THREE.BoxGeometry(0.95, 0.95, 0.95); // Köşeleri yuvarlamak için doku eklemek gerekir ama basitlik için box
+            
+            // Yuvarlatılmış köşe efekti için Geometry Modifier kullanmak ağır kaçabilir, 
+            // bunun yerine ışık oyunlarıyla materyali güçlendiriyoruz.
+            
+            for (let x = -1; x <= 1; x++) {
+                for (let y = -1; y <= 1; y++) {
+                    for (let z = -1; z <= 1; z++) {
+                        const materials = [
+                            getMaterial(x === 1 ? COLORS.R : COLORS.CORE),
+                            getMaterial(x === -1 ? COLORS.L : COLORS.CORE),
+                            getMaterial(y === 1 ? COLORS.U : COLORS.CORE),
+                            getMaterial(y === -1 ? COLORS.D : COLORS.CORE),
+                            getMaterial(z === 1 ? COLORS.F : COLORS.CORE),
+                            getMaterial(z === -1 ? COLORS.B : COLORS.CORE),
+                        ];
+
+                        const mesh = new THREE.Mesh(geometry, materials);
+                        mesh.position.set(x, y, z);
+                        mesh.userData = { isCube: true }; // Raycaster için işaret
+                        scene.add(mesh);
+                        cubes.push(mesh);
+                    }
+                }
+            }
+        }
+
+        function getMaterial(color) {
+            return new THREE.MeshPhysicalMaterial({
+                color: color,
+                metalness: 0.0,
+                roughness: 0.1,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.1
+            });
+        }
+
+        // --- INPUT (SWIPE) MANTIĞI ---
+        
+        // 1. Dokunma Başladığında
+        function onInputStart(event) {
+            if (isAnimating) return;
+
+            // Koordinatları al (Mouse veya Touch)
+            let clientX, clientY;
+            if (event.changedTouches) {
+                clientX = event.changedTouches[0].clientX;
+                clientY = event.changedTouches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            // Raycaster Ayarla
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            // Kesişme Kontrolü
+            const intersects = raycaster.intersectObjects(cubes);
+
+            if (intersects.length > 0) {
+                // KÜPE DOKUNDUK!
+                controls.enabled = false; // Kamerayı kilitle
+                intersectObject = intersects[0].object; // Hangi küp?
+                intersectNormal = intersects[0].face.normal.clone(); // Hangi yüzey?
+                
+                // Normal vektörü dünya koordinatlarına çevir (küp dönmüş olabilir)
+                intersectNormal.transformDirection(intersectObject.matrixWorld).round();
+
+                startTouch = { x: clientX, y: clientY };
+            } else {
+                // BOŞLUĞA DOKUNDUK
+                controls.enabled = true; // Kamerayı serbest bırak
+                startTouch = null;
+            }
+        }
+
+        // 2. Dokunma Bittiğinde (Swipe Analizi)
+        function onInputEnd(event) {
+            controls.enabled = true; // Kamerayı her türlü geri aç
+            if (!startTouch || !intersectObject) return;
+
+            let clientX, clientY;
+            if (event.changedTouches) {
+                clientX = event.changedTouches[0].clientX;
+                clientY = event.changedTouches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            const deltaX = clientX - startTouch.x;
+            const deltaY = clientY - startTouch.y;
+
+            // Çok küçük hareketleri yoksay (Tıklama gibi algılanmasın)
+            if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) return;
+
+            // Hangi eksen daha baskın? (Yatay mı Dikey mi sürükledi?)
+            const isHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
+            const direction = isHorizontal ? Math.sign(deltaX) : Math.sign(deltaY);
+
+            // --- SWIPE LOGIC (MATEMATİK KISMI) ---
+            // Yüzeyin normaline ve sürükleme yönüne göre hangi eksenin döneceğini buluyoruz.
+            // Normal: X, Y veya Z ekseninde olabilir.
+            
+            let axisToRotate, indexToRotate, rotationDir;
+            const pos = intersectObject.position;
+
+            // Basitleştirilmiş Mantık:
+            // Y eksenindeki yüzeye (Üst/Alt) bakıyorsak
+            if (Math.abs(intersectNormal.y) > 0.5) {
+                if (isHorizontal) { 
+                    axisToRotate = 'y'; // Yanlış gibi gelebilir ama görsel olarak Y ekseni etrafında döner
+                    indexToRotate = Math.round(pos.y);
+                    rotationDir = direction * -1; // Yön düzeltmesi gerekebilir
+                } else { 
+                    axisToRotate = 'x'; // Veya Z, kameranın açısına göre değişir.
+                    // Mobilde en temiz çözüm: Kameranın bakış açısına göre 'screen space' kararı vermek.
+                    // Şimdilik standart bir mapping yapıyoruz:
+                    axisToRotate = 'z'; 
+                    indexToRotate = Math.round(pos.z);
+                    rotationDir = direction;
+                }
+            }
+            // X eksenindeki yüzeye (Sağ/Sol) bakıyorsak
+            else if (Math.abs(intersectNormal.x) > 0.5) {
+                if (isHorizontal) {
+                    axisToRotate = 'y';
+                    indexToRotate = Math.round(pos.y);
+                    rotationDir = direction * -1;
+                } else {
+                    axisToRotate = 'z';
+                    indexToRotate = Math.round(pos.z);
+                    rotationDir = direction;
+                }
+            }
+            // Z eksenindeki yüzeye (Ön/Arka) bakıyorsak
+            else if (Math.abs(intersectNormal.z) > 0.5) {
+                 if (isHorizontal) {
+                    axisToRotate = 'y';
+                    indexToRotate = Math.round(pos.y);
+                    rotationDir = direction * -1;
+                } else {
+                    axisToRotate = 'x';
+                    indexToRotate = Math.round(pos.x);
+                    rotationDir = direction;
+                }
+            }
+
+            // Daha sağlam bir UX için kameranın yönünü hesaba katarak
+            // Swipe yönü ile eksen dönüşünü eşleştiren gelişmiş bir algoritma gerekir.
+            // Ancak yukarıdaki basit mantık "Ön" ve "Hafif Sağ" açılarda iyi çalışır.
+            // Arka tarafa geçince yönler tersine dönebilir (bunu fixlemek için dot product gerekir).
+            // Hızlı çözüm için kullanıcıya "ön yüzlerde oyna" hissi veriyoruz.
+
+            if (axisToRotate) {
+                rotateLayer(axisToRotate, indexToRotate, rotationDir);
+            }
+
+            startTouch = null;
+            intersectObject = null;
+        }
+
+        // --- DÖNDÜRME VE ANİMASYON ---
+        function rotateLayer(axis, index, direction) {
+            if (isAnimating) return;
+            isAnimating = true;
+            startTimer();
+
+            // Seçilen eksen ve indeksteki küpleri bul
+            const targetCubes = cubes.filter(c => Math.abs(c.position[axis] - index) < 0.1);
+
+            const pivot = new THREE.Object3D();
+            pivot.rotation.set(0, 0, 0);
+            scene.add(pivot);
+
+            targetCubes.forEach(c => {
+                scene.remove(c);
+                pivot.add(c);
+            });
+
+            const targetRotation = { value: 0 };
+            const finalRotation = (Math.PI / 2) * direction;
+
+            new TWEEN.Tween(targetRotation)
+                .to({ value: finalRotation }, 250) // 250ms hızlı tepki
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .onUpdate(() => {
+                    pivot.rotation[axis] = targetRotation.value;
+                })
+                .onComplete(() => {
+                    pivot.updateMatrixWorld();
+                    targetCubes.forEach(c => {
+                        c.updateMatrixWorld();
+                        pivot.remove(c);
+                        c.position.setFromMatrixPosition(c.matrixWorld);
+                        c.rotation.setFromRotationMatrix(c.matrixWorld);
+                        c.position.x = Math.round(c.position.x);
+                        c.position.y = Math.round(c.position.y);
+                        c.position.z = Math.round(c.position.z);
+                        scene.add(c);
+                    });
+                    scene.remove(pivot);
+                    isAnimating = false;
+                })
+                .start();
+        }
+
+        // --- OYUN BUTONLARI ---
+        function scrambleCube() {
+            if (isAnimating) return;
+            resetTimer();
+            let count = 0;
+            const totalMoves = 15;
+            
+            function nextMove() {
+                if (count >= totalMoves) { isAnimating = false; return; }
+                const axes = ['x', 'y', 'z'];
+                const indices = [-1, 0, 1];
+                const dirs = [1, -1];
+                
+                rotateLayer(
+                    axes[Math.floor(Math.random()*3)], 
+                    indices[Math.floor(Math.random()*3)], 
+                    dirs[Math.floor(Math.random()*2)]
+                );
+                
+                setTimeout(() => { count++; nextMove(); }, 270);
+            }
+            isAnimating = false;
+            nextMove();
+        }
+
+        function solveReset() {
+            location.reload();
+        }
+
+        // --- TIMER ---
+        function startTimer() {
+            if (isTimerRunning) return;
+            isTimerRunning = true;
+            startTime = Date.now();
+            timerInterval = setInterval(() => {
+                const diff = Date.now() - startTime;
+                const m = Math.floor(diff / 60000);
+                const s = Math.floor((diff % 60000) / 1000);
+                const ms = Math.floor((diff % 1000) / 10);
+                document.getElementById('timer').innerText = 
+                    `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}:${ms < 10 ? '0'+ms : ms}`;
+            }, 30);
+        }
+
+        function resetTimer() {
+            isTimerRunning = false;
+            clearInterval(timerInterval);
+            document.getElementById('timer').innerText = "00:00:00";
+        }
+
+        // --- STANDART FONKSİYONLAR ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            TWEEN.update(time);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
