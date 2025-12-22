@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Ultimate 3D Rubik's Cube</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #2b2b2b, #000000);
+            font-family: 'Orbitron', sans-serif;
+            color: white;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* UI Arayüzü */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            pointer-events: none; /* Tıklamaları alta geçir */
+            text-align: center;
+            z-index: 10;
+        }
+
+        #timer {
+            font-size: 3rem;
+            text-shadow: 0 0 10px #00ffcc, 0 0 20px #00ffcc;
+            margin-bottom: 10px;
+        }
+
+        .controls {
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 12px 24px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            cursor: pointer;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        button:hover {
+            background: rgba(0, 255, 204, 0.2);
+            border-color: #00ffcc;
+            box-shadow: 0 0 15px #00ffcc;
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
+
+        /* Klavye kontrolleri için mobil tuşlar (Opsiyonel) */
+        #mobile-controls {
+            display: none; /* Sadece mobilde JS ile açılabilir istenirse */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="timer">00:00:00</div>
+        <div class="controls">
+            <button onclick="scrambleCube()">Karıştır</button>
+            <button onclick="resetCamera()">Bakış Açısı</button>
+            <button onclick="solveReset()">Sıfırla</button>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="instructions">
+        PC: Mouse ile çevir, Klavye (U, D, L, R, F, B) ile oyna.<br>
+        Mobil: Dokunarak küpü incele, butonlarla karıştır.
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+
+    <script>
+        // --- 1. AYARLAR VE DEĞİŞKENLER ---
+        let scene, camera, renderer, controls;
+        let cubes = []; // 27 küçük küpü tutar
+        let isAnimating = false;
+        
+        // Timer Değişkenleri
+        let startTime;
+        let timerInterval;
+        let isTimerRunning = false;
+
+        // Renk Paleti (Gerçekçi Rubik Renkleri)
+        const COLORS = {
+            U: 0xFFFFFF, // Üst - Beyaz
+            D: 0xFFD500, // Alt - Sarı
+            F: 0x009E60, // Ön - Yeşil
+            B: 0x0051BA, // Arka - Mavi
+            R: 0xC41E3A, // Sağ - Kırmızı
+            L: 0xFF5800, // Sol - Turuncu
+            CORE: 0x111111 // İç plastik rengi (Siyah)
+        };
+
+        // --- 2. SAHNE KURULUMU (INIT) ---
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // Sahne
+            scene = new THREE.Scene();
+            
+            // Kamera
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(6, 5, 8);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer (Yüksek Kalite Ayarları)
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio); // Retina ekranlar için keskinlik
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Kontroller (OrbitControls - Dokunarak Bakma)
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Yumuşak duruş
+            controls.dampingFactor = 0.05;
+            controls.enablePan = false; // Sadece döndürme, kaydırma yok
+            controls.minDistance = 3;
+            controls.maxDistance = 15;
+
+            // Işıklandırma (Vooov Efekti için Kritik)
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(5, 10, 7);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            const spotLight = new THREE.SpotLight(0xffffff, 0.8);
+            spotLight.position.set(-5, -5, -5);
+            scene.add(spotLight);
+
+            // Küpü Oluştur
+            createRubiksCube();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('keydown', onKeyDown);
+
+            // Animasyon Döngüsü
+            animate();
+        }
+
+        // --- 3. KÜP OLUŞTURMA MANTIĞI ---
+        function createRubiksCube() {
+            // Geometri: Yuvarlatılmış efekt için BoxGeometry + Materyal hilesi
+            const geometry = new THREE.BoxGeometry(0.96, 0.96, 0.96); // Biraz boşluk bırak (0.96)
+
+            // x, y, z koordinatlarında -1, 0, 1 döngüsü (3x3x3)
+            for (let x = -1; x <= 1; x++) {
+                for (let y = -1; y <= 1; y++) {
+                    for (let z = -1; z <= 1; z++) {
+                        
+                        // Her küp parçası için materyal dizisi (6 yüz)
+                        // Sıra: Right, Left, Top, Bottom, Front, Back
+                        const materials = [
+                            getMaterial(x === 1 ? COLORS.R : COLORS.CORE), // Right
+                            getMaterial(x === -1 ? COLORS.L : COLORS.CORE), // Left
+                            getMaterial(y === 1 ? COLORS.U : COLORS.CORE), // Top
+                            getMaterial(y === -1 ? COLORS.D : COLORS.CORE), // Bottom
+                            getMaterial(z === 1 ? COLORS.F : COLORS.CORE), // Front
+                            getMaterial(z === -1 ? COLORS.B : COLORS.CORE), // Back
+                        ];
+
+                        const mesh = new THREE.Mesh(geometry, materials);
+                        
+                        // Pozisyon
+                        mesh.position.set(x, y, z);
+                        
+                        // Veri sakla (Orijinal konum takibi için)
+                        mesh.userData = { initialPosition: new THREE.Vector3(x, y, z) };
+                        
+                        // Gölgeler
+                        mesh.castShadow = true;
+                        mesh.receiveShadow = true;
+
+                        scene.add(mesh);
+                        cubes.push(mesh);
+                    }
+                }
+            }
+        }
+
+        // Materyal Oluşturucu (Parlak Plastik Hissi)
+        function getMaterial(color) {
+            return new THREE.MeshPhysicalMaterial({
+                color: color,
+                metalness: 0.1,
+                roughness: 0.1, // Çok pürüzsüz (parlak)
+                clearcoat: 1.0, // Cila katmanı
+                clearcoatRoughness: 0.1
+            });
+        }
+
+        // --- 4. HAREKET MANTIĞI (PİVOT SİSTEMİ) ---
+        
+        // Belirli bir eksendeki dilimi seç ve döndür
+        // axis: 'x', 'y', 'z'
+        // index: -1, 0, 1 (Hangi katman)
+        // direction: 1 (saat yönü), -1 (ters)
+        function rotateLayer(axis, index, direction, animationDuration = 300) {
+            if (isAnimating) return;
+            isAnimating = true;
+            startTimer(); // İlk harekette zaman başlar
+
+            // 1. Döndürülecek küpleri seç
+            const targetCubes = cubes.filter(c => Math.abs(c.position[axis] - index) < 0.1);
+
+            // 2. Bir pivot (merkez) obje oluştur
+            const pivot = new THREE.Object3D();
+            pivot.rotation.set(0, 0, 0);
+            scene.add(pivot);
+
+            // 3. Küpleri pivota bağla (Scene'den çıkarıp pivota ekle)
+            targetCubes.forEach(c => {
+                scene.remove(c);
+                pivot.add(c);
+            });
+
+            // 4. Animasyon (Tween.js)
+            const targetRotation = { value: 0 };
+            const finalRotation = (Math.PI / 2) * direction;
+
+            new TWEEN.Tween(targetRotation)
+                .to({ value: finalRotation }, animationDuration)
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .onUpdate(() => {
+                    pivot.rotation[axis] = targetRotation.value;
+                })
+                .onComplete(() => {
+                    // 5. Animasyon bitince temizlik
+                    pivot.updateMatrixWorld(); // Transformları güncelle
+                    
+                    targetCubes.forEach(c => {
+                        c.updateMatrixWorld();
+                        // Pivottan çıkarıp dünya koordinatlarına geri al ama yeni pozisyonu koru
+                        pivot.remove(c); 
+                        c.position.setFromMatrixPosition(c.matrixWorld);
+                        c.rotation.setFromRotationMatrix(c.matrixWorld);
+                        
+                        // Pozisyonları tam sayıya yuvarla (küçük kaymaları önlemek için)
+                        c.position.x = Math.round(c.position.x);
+                        c.position.y = Math.round(c.position.y);
+                        c.position.z = Math.round(c.position.z);
+                        
+                        scene.add(c);
+                    });
+                    
+                    scene.remove(pivot);
+                    isAnimating = false;
+                })
+                .start();
+        }
+
+        // --- 5. OYUN FONKSİYONLARI ---
+
+        // Karıştırma
+        function scrambleCube() {
+            if (isAnimating) return;
+            resetTimer();
+            
+            const axes = ['x', 'y', 'z'];
+            const indices = [-1, 0, 1];
+            const dirs = [1, -1];
+            
+            let count = 0;
+            const totalMoves = 20; // 20 hamle karıştır
+
+            function nextMove() {
+                if (count >= totalMoves) {
+                    isAnimating = false;
+                    return;
+                }
+                
+                // Rastgele hamle seç
+                const axis = axes[Math.floor(Math.random() * axes.length)];
+                const index = indices[Math.floor(Math.random() * indices.length)];
+                const dir = dirs[Math.floor(Math.random() * dirs.length)];
+                
+                // Hızlı animasyon (100ms)
+                rotateLayer(axis, index, dir, 100);
+                
+                // Animasyon bitmesini beklemeden ardışık çağrı (Tween onComplete'i simüle ediyoruz)
+                setTimeout(() => {
+                    count++;
+                    nextMove();
+                }, 110);
+            }
+            
+            // Hileyi önlemek için flag'i manuel kontrol et
+            isAnimating = false; 
+            nextMove();
+        }
+
+        // Sıfırla (Basitçe sayfayı yenilemek yerine küpleri eski yerine dizebiliriz ama reload en temizi)
+        function solveReset() {
+            location.reload(); 
+        }
+
+        // Kamera Açısını Düzelt
+        function resetCamera() {
+            new TWEEN.Tween(camera.position)
+                .to({ x: 6, y: 5, z: 8 }, 1000)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+        }
+
+        // --- 6. TIMER ---
+        function startTimer() {
+            if (isTimerRunning) return;
+            isTimerRunning = true;
+            startTime = Date.now();
+            timerInterval = setInterval(updateTimer, 10);
+        }
+
+        function stopTimer() {
+            isTimerRunning = false;
+            clearInterval(timerInterval);
+        }
+
+        function resetTimer() {
+            stopTimer();
+            document.getElementById('timer').innerText = "00:00:00";
+        }
+
+        function updateTimer() {
+            const elapsedTime = Date.now() - startTime;
+            const minutes = Math.floor(elapsedTime / 60000);
+            const seconds = Math.floor((elapsedTime % 60000) / 1000);
+            const milliseconds = Math.floor((elapsedTime % 1000) / 10);
+
+            document.getElementById('timer').innerText = 
+                `${pad(minutes)}:${pad(seconds)}:${pad(milliseconds)}`;
+        }
+
+        function pad(number) {
+            return number < 10 ? '0' + number : number;
+        }
+
+        // --- 7. KLAVYE KONTROLLERİ ---
+        function onKeyDown(event) {
+            if (isAnimating) return;
+
+            const key = event.key.toUpperCase();
+            switch(key) {
+                // Standart Rubik Notasyonu
+                case 'L': rotateLayer('x', -1, 1); break; // Left
+                case 'R': rotateLayer('x', 1, -1); break; // Right
+                case 'U': rotateLayer('y', 1, 1); break;  // Up
+                case 'D': rotateLayer('y', -1, -1); break;// Down
+                case 'F': rotateLayer('z', 1, 1); break;  // Front
+                case 'B': rotateLayer('z', -1, -1); break;// Back
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            TWEEN.update(time);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Başlat
+        init();
+
+    </script>
+</body>
+</html>
