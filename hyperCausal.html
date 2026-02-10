@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CYBER DISC SURFER</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@700&display=swap');
+
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #050510; 
+            font-family: 'Rajdhani', sans-serif; 
+            touch-action: none; /* Mobilde kaydırmayı engelle */
+        }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        /* UI Katmanı */
+        #ui { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            pointer-events: none; display: flex; flex-direction: column; 
+            justify-content: space-between; padding: 20px; box-sizing: border-box; 
+        }
+        
+        .top-ui { 
+            display: flex; justify-content: space-between; align-items: center; width: 100%; 
+        }
+        
+        #score { 
+            font-size: 48px; color: #fff; text-shadow: 0 0 15px #0ff; font-weight: 900;
+        }
+        
+        /* Fever Bar Dizaynı */
+        #fever-wrapper {
+            width: 200px; height: 25px; 
+            background: rgba(0,0,0,0.5); 
+            border: 2px solid #fff; 
+            border-radius: 4px;
+            transform: skewX(-15deg); 
+            overflow: hidden;
+            box-shadow: 0 0 10px #f0f;
+        }
+        #fever-fill { 
+            width: 0%; height: 100%; 
+            background: linear-gradient(90deg, #ff00cc, #3333ff); 
+            transition: width 0.1s linear; 
+        }
+        .fever-active #fever-fill {
+            background: linear-gradient(90deg, #ffff00, #ff0000);
+            box-shadow: 0 0 20px #fff;
+            animation: pulseBar 0.1s infinite;
+        }
+
+        /* Menü Ekranları */
+        #startScreen, #gameOverScreen { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(5, 5, 16, 0.9); 
+            backdrop-filter: blur(10px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; 
+            z-index: 10; pointer-events: auto;
+            transition: opacity 0.3s;
+        }
+        
+        h1 { 
+            font-size: 60px; margin: 0; 
+            background: linear-gradient(to bottom, #0ff, #f0f); 
+            -webkit-background-clip: text; color: transparent; 
+            text-transform: uppercase; letter-spacing: 5px; 
+            animation: titleGlitch 2s infinite;
+        }
+        
+        p { color: #fff; font-size: 20px; margin-top: 10px; opacity: 0.8; text-transform: uppercase; }
+        
+        .btn {
+            margin-top: 40px; padding: 20px 60px; font-size: 28px; 
+            font-family: 'Rajdhani', sans-serif; font-weight: 900;
+            color: #0ff; background: rgba(0, 255, 255, 0.1); 
+            border: 2px solid #0ff; 
+            cursor: pointer; text-transform: uppercase; 
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+            transition: 0.2s; 
+            clip-path: polygon(15% 0, 100% 0, 100% 70%, 85% 100%, 0 100%, 0 30%);
+        }
+        .btn:hover { background: #0ff; color: #000; box-shadow: 0 0 40px #0ff; }
+        .btn:active { transform: scale(0.95); }
+
+        .hidden { opacity: 0; pointer-events: none; }
+
+        @keyframes pulseBar { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        @keyframes titleGlitch {
+            0% { text-shadow: 2px 2px #f00; transform: skewX(0deg); }
+            20% { text-shadow: -2px -2px #0ff; transform: skewX(-2deg); }
+            40% { text-shadow: 2px -2px #0f0; transform: skewX(2deg); }
+            100% { text-shadow: 2px 2px #f00; transform: skewX(0deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div class="top-ui">
+            <div id="score">0</div>
+            <div id="fever-wrapper"><div id="fever-fill"></div></div>
+        </div>
+    </div>
+
+    <div id="startScreen">
+        <h1>CYBER DISC</h1>
+        <p>MOBİL: PARMAKLA KAYDIR | PC: MOUSE İLE YÖNET</p>
+        <button class="btn" onclick="startGame()">BAŞLAT</button>
+    </div>
+
+    <div id="gameOverScreen" class="hidden">
+        <h1 style="color: #f00; background: none; -webkit-background-clip: unset;">YIKILDIN!</h1>
+        <p id="finalScore">SKOR: 0</p>
+        <button class="btn" style="border-color: #f00; color:#f00; box-shadow: 0 0 20px #f00;" onclick="startGame()">TEKRAR DENE</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    /**
+     * TEK DOSYALIK HYPER CASUAL OYUN MOTORU
+     * Yazar: Gemini
+     */
+    
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // --- SES SİSTEMİ (AudioContext) ---
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioContext();
+    
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+
+        if (type === 'collect') { // Disk Toplama
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.exponentialRampToValueAtTime(1000, now + 0.1);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now); osc.stop(now + 0.15);
+        } else if (type === 'coin') { // Elmas
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(1200, now);
+            osc.frequency.linearRampToValueAtTime(2000, now + 0.1);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now); osc.stop(now + 0.1);
+        } else if (type === 'hit') { // Çarpma
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100, now);
+            osc.frequency.exponentialRampToValueAtTime(30, now + 0.3);
+            gain.gain.setValueAtTime(0.5, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            osc.start(now); osc.stop(now + 0.3);
+        } else if (type === 'smash') { // Fever Kırma
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(200, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+            gain.gain.setValueAtTime(0.4, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.start(now); osc.stop(now + 0.2);
+        }
+    }
+
+    // --- DEĞİŞKENLER ---
+    let w, h;
+    let gameRunning = false;
+    let frame = 0;
+    let score = 0;
+    let baseSpeed = 9;
+    let speed = baseSpeed;
+    
+    // Kamera Efekti
+    let shakeIntensity = 0;
+    
+    // Fever Modu
+    let feverVal = 0;
+    let isFeverMode = false;
+    const FEVER_MAX = 100;
+
+    // Oyuncu
+    const player = {
+        x: 0,
+        targetX: 0,
+        y: 0,
+        width: 70, // Disk Genişliği
+        height: 25, // Disk Yüksekliği (Görsel)
+        stack: 1, // Kaç katlı
+        color: '#00f2ff'
+    };
+
+    // Objeler
+    let objects = []; // Hem engeller hem ödüller burada
+    let particles = [];
+    let texts = [];
+    let trail = [];
+
+    // --- BAŞLATMA VE AYARLAR ---
+    function resize() {
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
+        player.x = w / 2 - player.width / 2;
+        player.targetX = player.x;
+        player.y = h - 200; // Oyuncu konumu
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Input
+    function handleInput(clientX) {
+        if (!gameRunning) return;
+        let normalized = clientX / w;
+        player.targetX = (normalized * w) - (player.width / 2);
+        // Ekranda tut
+        if (player.targetX < -20) player.targetX = -20;
+        if (player.targetX > w - player.width + 20) player.targetX = w - player.width + 20;
+    }
+    document.addEventListener('mousemove', e => handleInput(e.clientX));
+    document.addEventListener('touchmove', e => { e.preventDefault(); handleInput(e.touches[0].clientX); }, {passive: false});
+
+    function startGame() {
+        document.getElementById('startScreen').classList.add('hidden');
+        document.getElementById('gameOverScreen').classList.add('hidden');
+        
+        gameRunning = true;
+        score = 0;
+        feverVal = 0;
+        isFeverMode = false;
+        speed = baseSpeed;
+        frame = 0;
+        
+        player.stack = 1;
+        player.x = w / 2 - player.width / 2;
+        player.targetX = player.x;
+        
+        objects = [];
+        particles = [];
+        texts = [];
+        trail = [];
+        
+        updateUI();
+        loop();
+    }
+
+    // --- OYUN DÖNGÜSÜ ---
+    function loop() {
+        if (!gameRunning) return;
+        update();
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    function update() {
+        frame++;
+        
+        // 1. Zorluk ve Hız
+        let difficulty = 1 + (score / 1500);
+        
+        if (isFeverMode) {
+            speed = baseSpeed * 1.8;
+            feverVal -= 0.5; // Fever azalır
+            if (frame % 3 === 0) createParticles(player.x + player.width/2, player.y, '#f0f', 1);
+            if (feverVal <= 0) {
+                isFeverMode = false;
+                shake(10);
+            }
+        } else {
+            speed = baseSpeed * difficulty;
+            feverVal = Math.max(0, feverVal - 0.1);
+        }
+        updateUI();
+
+        // 2. Oyuncu Hareketi (Yumuşak Geçiş - Lerp)
+        player.x += (player.targetX - player.x) * 0.15;
+
+        // İz (Trail)
+        if (frame % 2 === 0) {
+            trail.push({ x: player.x, y: player.y, stack: player.stack, alpha: 0.6 });
+        }
+        for (let i = trail.length - 1; i >= 0; i--) {
+            trail[i].y += speed;
+            trail[i].alpha -= 0.05;
+            if (trail[i].alpha <= 0) trail.splice(i, 1);
+        }
+
+        // 3. Obje Oluşturma (Spawner)
+        if (frame % Math.floor(40 / difficulty) === 0) {
+            spawnObject();
+        }
+
+        // 4. Obje Güncelleme & Çarpışma
+        updateObjects();
+        updateParticles();
+        updateTexts();
+
+        // 5. Shake Sönümleme
+        if (shakeIntensity > 0) shakeIntensity *= 0.9;
+        if (shakeIntensity < 0.5) shakeIntensity = 0;
+    }
+
+    function spawnObject() {
+        const lanes = 5;
+        const laneW = w / lanes;
+        const lane = Math.floor(Math.random() * lanes);
+        const objX = (lane * laneW) + (laneW/2) - (player.width/2);
+        
+        const rand = Math.random();
+        
+        // %30 Disk, %30 Engel, %40 Elmas
+        if (rand < 0.3) {
+            // DİSK (Can)
+            objects.push({ type: 'disc', x: objX, y: -100, w: player.width, h: 30, active: true, color: '#00f2ff' });
+        } else if (rand < 0.7) {
+            // ELMAS (Skor)
+            objects.push({ type: 'coin', x: objX + 15, y: -100, w: 40, h: 40, active: true, angle: 0 });
+        } else {
+            // ENGEL (Duvar)
+            if (!isFeverMode || Math.random() > 0.7) {
+                let val = Math.floor(Math.random() * 3) + 1;
+                objects.push({ type: 'wall', x: objX, y: -100, w: player.width + 10, h: 50, val: val, active: true });
+            }
+        }
+    }
+
+    function updateObjects() {
+        // Oyuncunun kapladığı alan (Yükseklik)
+        let playerTop = player.y - ((player.stack) * 30); // 30 = disk kalınlığı
+        let playerBottom = player.y + 30;
+
+        objects.forEach(o => {
+            o.y += speed;
+            if (o.type === 'coin') o.angle += 0.1;
+
+            if (o.active && rectIntersect(player.x, playerTop, player.width, (player.stack * 30) + 30, o.x, o.y, o.w, o.h)) {
+                
+                if (o.type === 'disc') {
+                    o.active = false;
+                    player.stack++;
+                    playSound('collect');
+                    createText("+STACK", o.x, o.y, '#0ff');
+                    createParticles(o.x + o.w/2, o.y, '#0ff', 10);
+                } 
+                else if (o.type === 'coin') {
+                    o.active = false;
+                    score += 25;
+                    feverVal += 15;
+                    playSound('coin');
+                    createText("25", o.x, o.y, '#ff0');
+                    createParticles(o.x + o.w/2, o.y, '#ff0', 8);
+                    if (feverVal >= FEVER_MAX && !isFeverMode) activateFever();
+                }
+                else if (o.type === 'wall') {
+                    // Çarpışma: Duvarın Y'si oyuncunun gövdesine denk mi?
+                    if (o.y + 40 > playerTop && o.y < playerBottom) {
+                        if (isFeverMode) {
+                            // Parçala!
+                            o.active = false;
+                            playSound('smash');
+                            shake(15);
+                            createParticles(o.x + o.w/2, o.y, '#f00', 20);
+                            createText("SMASH!", o.x, o.y, '#fff', 30);
+                            score += 100;
+                        } else {
+                            // Hasar Al
+                            o.active = false;
+                            player.stack -= o.val;
+                            playSound('hit');
+                            shake(20);
+                            createParticles(player.x + player.width/2, player.y, '#f00', 15);
+                            createText("-" + o.val, o.x, o.y, '#f00', 30);
+                            
+                            if (player.stack < 1) gameOver();
+                        }
+                    }
+                }
+            }
+        });
+        
+        objects = objects.filter(o => o.y < h + 100);
+    }
+
+    function activateFever() {
+        isFeverMode = true;
+        feverVal = 100;
+        shake(20);
+        createText("FEVER!", w/2 - 50, h/2, '#f0f', 50);
+    }
+
+    function gameOver() {
+        gameRunning = false;
+        document.getElementById('gameOverScreen').classList.remove('hidden');
+        document.getElementById('finalScore').innerText = "SKOR: " + Math.floor(score);
+    }
+
+    // --- ÇİZİM (RENDER) ---
+    function draw() {
+        // Arka Plan (Cyber Grid)
+        let bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+        bgGrad.addColorStop(0, '#050510');
+        bgGrad.addColorStop(1, '#1a0b2e');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, w, h);
+
+        // Shake Uygulama
+        ctx.save();
+        if (shakeIntensity > 0) {
+            ctx.translate((Math.random()-0.5)*shakeIntensity, (Math.random()-0.5)*shakeIntensity);
+        }
+
+        // Izgara Çizimi
+        ctx.strokeStyle = isFeverMode ? 'rgba(255,0,255,0.2)' : 'rgba(0,242,255,0.1)';
+        ctx.lineWidth = 2;
+        let offset = (frame * speed) % 100;
+        
+        // Perspektif çizgileri
+        ctx.beginPath();
+        for (let i = -w; i < w*2; i+=100) {
+            ctx.moveTo(w/2 + (i - w/2) * 0.1, 0);
+            ctx.lineTo(i, h);
+        }
+        ctx.stroke();
+        
+        // Yatay çizgiler
+        for (let i=0; i<h; i+=100) {
+            let y = i + offset; if(y>h) y-=h;
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+
+        // Trail Çizimi
+        trail.forEach(t => {
+            for(let i=0; i<t.stack; i++) {
+                let yPos = t.y - (i * 30);
+                ctx.fillStyle = isFeverMode ? `rgba(255,0,255,${t.alpha*0.3})` : `rgba(0,242,255,${t.alpha*0.3})`;
+                ctx.fillRect(t.x, yPos, player.width, 25);
+            }
+        });
+
+        // Objeler
+        objects.forEach(o => {
+            if (!o.active) return;
+            if (o.type === 'disc') {
+                drawNeonDisc(o.x, o.y, o.w, 30, o.color);
+            } else if (o.type === 'coin') {
+                drawCoin(o.x, o.y, o.w, o.h, o.angle);
+            } else if (o.type === 'wall') {
+                drawWall(o.x, o.y, o.w, 50, o.val);
+            }
+        });
+
+        // OYUNCU (Disk Kulesi)
+        for (let i = 0; i < player.stack; i++) {
+            let yPos = player.y - (i * 30);
+            let color = isFeverMode ? '#f0f' : player.color;
+            drawNeonDisc(player.x, yPos, player.width, 30, color);
+        }
+        
+        // Karakter (Surfer - En tepedeki top)
+        let headY = player.y - ((player.stack) * 30);
+        ctx.shadowBlur = 20; ctx.shadowColor = '#fff';
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(player.x + player.width/2, headY + 15, 12, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Partiküller ve Yazılar
+        drawParticles();
+        drawTexts();
+
+        ctx.restore();
+    }
+
+    // --- YARDIMCI ÇİZİM FONKSİYONLARI ---
+    
+    // 2.5D Disk Çizimi (Neon Puck)
+    function drawNeonDisc(x, y, w, h, color) {
+        ctx.save();
+        let cx = x + w/2; let cy = y + h/2;
+        let rx = w/2; let ry = h/3;
+
+        ctx.shadowBlur = 15; ctx.shadowColor = color;
+        ctx.fillStyle = color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+
+        // Alt Parça
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + h/2 - ry, rx, ry, 0, 0, Math.PI);
+        ctx.lineTo(x, cy - h/2 + ry);
+        ctx.ellipse(cx, cy - h/2 + ry, rx, ry, 0, Math.PI, 0, true);
+        ctx.lineTo(x + w, cy + h/2 - ry);
+        ctx.globalAlpha = 0.6; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+
+        // Üst Kapak
+        ctx.beginPath();
+        ctx.ellipse(cx, cy - h/2 + ry, rx, ry, 0, 0, Math.PI*2);
+        ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.4; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+        
+        ctx.restore();
+    }
+
+    function drawCoin(x, y, w, h, angle) {
+        ctx.save();
+        ctx.translate(x + w/2, y + h/2);
+        ctx.rotate(angle);
+        ctx.shadowBlur = 20; ctx.shadowColor = '#ff0';
+        ctx.fillStyle = '#ff0';
+        ctx.beginPath(); ctx.moveTo(0, -h/2); ctx.lineTo(w/2, 0); ctx.lineTo(0, h/2); ctx.lineTo(-w/2, 0); ctx.fill();
+        ctx.restore();
+    }
+
+    function drawWall(x, y, w, h, val) {
+        ctx.save();
+        ctx.shadowBlur = 20; ctx.shadowColor = '#f00';
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.6)';
+        ctx.strokeStyle = '#f00'; ctx.lineWidth = 3;
+        ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+        
+        ctx.fillStyle = '#fff'; ctx.shadowBlur=0; 
+        ctx.font = 'bold 24px Rajdhani'; ctx.textAlign = 'center';
+        ctx.fillText("-" + val, x + w/2, y + 32);
+        ctx.restore();
+    }
+
+    // --- EFEKT SİSTEMLERİ ---
+    function createParticles(x, y, color, count) {
+        for(let i=0; i<count; i++) {
+            particles.push({
+                x: x, y: y,
+                vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
+                life: 1, color: color
+            });
+        }
+    }
+    function updateParticles() {
+        for(let i=particles.length-1; i>=0; i--) {
+            let p = particles[i];
+            p.x += p.vx; p.y += p.vy; p.vy += 0.5; p.life -= 0.04;
+            if(p.life <= 0) particles.splice(i, 1);
+        }
+    }
+    function drawParticles() {
+        particles.forEach(p => {
+            ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, 6, 6);
+        });
+        ctx.globalAlpha = 1;
+    }
+
+    function createText(txt, x, y, color, size=24) {
+        texts.push({ txt, x, y, color, size, life: 1 });
+    }
+    function updateTexts() {
+        for(let i=texts.length-1; i>=0; i--) {
+            let t = texts[i]; t.y -= 2; t.life -= 0.02;
+            if(t.life <= 0) texts.splice(i, 1);
+        }
+    }
+    function drawTexts() {
+        texts.forEach(t => {
+            ctx.globalAlpha = t.life; ctx.fillStyle = t.color;
+            ctx.font = `bold ${t.size}px Rajdhani`; ctx.shadowBlur = 10; ctx.shadowColor = t.color;
+            ctx.fillText(t.txt, t.x, t.y);
+        });
+        ctx.globalAlpha = 1;
+    }
+
+    function shake(val) {
+        shakeIntensity = val;
+        if(navigator.vibrate) navigator.vibrate(val * 10);
+    }
+    
+    function updateUI() {
+        document.getElementById('score').innerText = Math.floor(score);
+        document.getElementById('fever-fill').style.width = feverVal + "%";
+        if(isFeverMode) document.body.classList.add('fever-active');
+        else document.body.classList.remove('fever-active');
+    }
+
+    function rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) {
+        return x2 < x1 + w1 && x2 + w2 > x1 && y2 < y1 + h1 && y2 + h2 > y1;
+    }
+</script>
+</body>
+</html>
